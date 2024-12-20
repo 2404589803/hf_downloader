@@ -1,6 +1,6 @@
-# Hugging Face 数据集下载工具
+# <img src="hf_icon.png" alt="Hugging Face" width="32" height="32" style="vertical-align: middle"> 下载工具
 
-这是一个 Hugging Face 数据集下载工具。
+这是一个 Hugging Face 图形化下载工具。
 
 ## 功能特点
 
