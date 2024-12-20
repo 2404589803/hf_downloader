@@ -1,0 +1,7 @@
+huggingface-hub
+PyQt6
+requests
+huggingface-hub
+python-dotenv
+dnspython
+urllib3
