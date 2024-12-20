@@ -1,4 +1,4 @@
-# <img src="hf_icon.png" alt="Hugging Face" width="32" height="32" style="vertical-align: middle"> 下载工具
+# <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" alt="Hugging Face" width="32" height="32" style="vertical-align: middle"> Hugging Face 下载工具
 
 这是一个 Hugging Face 图形化下载工具。
 
