@@ -19,7 +19,7 @@
 
 1. 克隆本仓库：
 ```bash
-git clone [仓库地址]
+git clone https://github.com/2404589803/hf_downloader.git
 cd hf_downloader
 ```
 
