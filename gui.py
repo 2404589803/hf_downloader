@@ -4,7 +4,7 @@ import requests
 import logging
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSettings
 from huggingface_hub import hf_hub_download, login, HfApi, snapshot_download
 from dotenv import load_dotenv
 import time
@@ -59,7 +59,7 @@ class DownloadThread(QThread):
     progress_value = pyqtSignal(int)
     finished_signal = pyqtSignal(bool, str)
 
-    def __init__(self, repo_id, filename=None, subfolder=None, token=None, download_full_repo=False, repo_type="model", save_path=None):
+    def __init__(self, repo_id, filename=None, subfolder=None, token=None, download_full_repo=False, repo_type="model", save_path=None, tr_func=None):
         super().__init__()
         self.repo_id = repo_id
         self.filename = filename
@@ -68,6 +68,7 @@ class DownloadThread(QThread):
         self.download_full_repo = download_full_repo
         self.repo_type = repo_type
         self.save_path = save_path
+        self.tr = tr_func  # 添加翻译函数
         self.max_retries = 100
         self.chunk_size = 1024 * 1024
         self.timeout = (30, 300)
@@ -191,10 +192,10 @@ class DownloadThread(QThread):
             if self.token:
                 login(token=self.token)
                 logging.info("Successfully logged in with token")
-                self.progress_signal.emit("已登录 Hugging Face")
+                self.progress_signal.emit(self.tr("logged_in"))
                 self.progress_value.emit(10)
 
-            self.progress_signal.emit("正在准备下载...")
+            self.progress_signal.emit(self.tr("preparing_download"))
             self.progress_value.emit(20)
             
             # 配置下载参数
@@ -205,9 +206,9 @@ class DownloadThread(QThread):
                 "local_dir_use_symlinks": False,
                 "resume_download": True,
                 "force_download": True,
-                "max_workers": 1,  # 减少并发数以避免连接重置
-                "tqdm_class": None,  # 禁用进度条
-                "etag_timeout": 600,  # 增加超时时间
+                "max_workers": 1,
+                "tqdm_class": None,
+                "etag_timeout": 600,
                 "local_files_only": False
             }
 
@@ -218,13 +219,13 @@ class DownloadThread(QThread):
                     if self.save_path:
                         download_kwargs["local_dir"] = os.path.join(self.save_path, self.repo_id.split('/')[-1])
                     
-                    self.progress_signal.emit("开始下载仓库...")
+                    self.progress_signal.emit(self.tr("start_repo_download"))
                     self.progress_value.emit(30)
                     
                     # 尝试下载
-                    for attempt in range(5):  # 增加重试次数到5次
+                    for attempt in range(5):
                         try:
-                            self.progress_signal.emit(f"尝试下载 (第{attempt + 1}次)...")
+                            self.progress_signal.emit(self.tr("download_attempt").format(attempt + 1))
                             self.progress_value.emit(40 + attempt * 10)
                              
                             # 使用自定义的HTTPS连接
@@ -235,14 +236,14 @@ class DownloadThread(QThread):
                             self.progress_value.emit(90)
                             break
                         except Exception as e:
-                            if attempt < 4:  # 如果不是最后一次尝试
-                                self.progress_signal.emit(f"下载失败，正在重试 ({attempt + 2}/5)...")
-                                time.sleep(10)  # 增加等待时间到10秒
+                            if attempt < 4:
+                                self.progress_signal.emit(self.tr("download_retry").format(attempt + 2))
+                                time.sleep(10)
                             else:
                                 raise e
                     
                     self.progress_value.emit(100)
-                    self.finished_signal.emit(True, f"仓库已成功下载到: {downloaded_path}")
+                    self.finished_signal.emit(True, self.tr("download_success").format(downloaded_path))
                     return
                     
                 except Exception as e:
@@ -255,7 +256,7 @@ class DownloadThread(QThread):
                         other_types = [t for t in ["model", "dataset", "space"] if t != self.repo_type]
                         for other_type in other_types:
                             try:
-                                self.progress_signal.emit(f"尝试使用其他仓库类型: {other_type}")
+                                self.progress_signal.emit(self.tr("trying_other_type").format(other_type))
                                 download_kwargs["repo_type"] = other_type
                                 downloaded_path = snapshot_download(**download_kwargs)
                                 if self.save_path:
@@ -265,12 +266,12 @@ class DownloadThread(QThread):
                                     shutil.copytree(downloaded_path, final_path)
                                     downloaded_path = final_path
                                 self.progress_value.emit(100)
-                                self.finished_signal.emit(True, f"仓库已成功下载到: {downloaded_path}")
+                                self.finished_signal.emit(True, self.tr("download_success").format(downloaded_path))
                                 return
                             except:
                                 continue
                     
-                    self.finished_signal.emit(False, f"下载失败: {error_msg}")
+                    self.finished_signal.emit(False, self.tr("download_failed").format(error_msg))
                     return
             else:
                 try:
@@ -293,19 +294,19 @@ class DownloadThread(QThread):
                         resume_download=True
                     )
                     self.progress_value.emit(100)
-                    self.finished_signal.emit(True, f"文件已成功下载到: {downloaded_path}")
+                    self.finished_signal.emit(True, self.tr("file_download_success").format(downloaded_path))
                     return
                     
                 except Exception as e:
                     logging.error(f"Error during file download: {str(e)}")
                     logging.error(traceback.format_exc())
-                    self.finished_signal.emit(False, f"下载失败: {str(e)}")
+                    self.finished_signal.emit(False, self.tr("download_failed").format(str(e)))
                     return
 
         except Exception as e:
             logging.error(f"Fatal error during download: {str(e)}")
             logging.error(traceback.format_exc())
-            self.finished_signal.emit(False, f"下载失败: {str(e)}")
+            self.finished_signal.emit(False, self.tr("download_failed").format(str(e)))
             
     def __del__(self):
         # 恢复DNS设置
@@ -319,7 +320,13 @@ class DownloadThread(QThread):
 class HFDownloaderGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Hugging Face 下载工具")
+        
+        # 加载语言配置
+        self.settings = QSettings('HFDownloader', 'Settings')
+        self.current_language = self.settings.value('language', 'zh_CN')
+        self.load_languages()
+        
+        self.setWindowTitle(self.tr("window_title"))
         # 设置固定窗口大小
         self.setFixedSize(600, 700)
         
@@ -506,6 +513,16 @@ class HFDownloaderGUI(QMainWindow):
         layout.setContentsMargins(30, 20, 30, 20)
         layout.setSpacing(16)
         
+        # 添加语言选择下拉框
+        language_layout = QHBoxLayout()
+        language_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.language_combo = QComboBox()
+        self.language_combo.addItems(['简体中文', 'English'])
+        self.language_combo.setCurrentText('简体中文' if self.current_language == 'zh_CN' else 'English')
+        self.language_combo.currentTextChanged.connect(self.change_language)
+        language_layout.addWidget(self.language_combo)
+        layout.addLayout(language_layout)
+        
         # 添加 Hugging Face 图标
         icon_label = QLabel()
         icon_pixmap = QPixmap("hf_icon.png").scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
@@ -514,10 +531,10 @@ class HFDownloaderGUI(QMainWindow):
         layout.addWidget(icon_label)
         
         # 添加标题
-        title_label = QLabel("Hugging Face 下载工具")
-        title_label.setObjectName("title")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title_label)
+        self.title_label = QLabel(self.tr("title"))
+        self.title_label.setObjectName("title")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.title_label)
         
         # 创建表单布局
         form_layout = QFormLayout()
@@ -528,36 +545,36 @@ class HFDownloaderGUI(QMainWindow):
         
         # 仓库ID输入
         self.repo_input = QLineEdit()
-        self.repo_input.setPlaceholderText("例如: bert-base-chinese 或 username/repo-name")
-        form_layout.addRow("仓库 ID:", self.repo_input)
+        self.repo_input.setPlaceholderText(self.tr("repo_id_placeholder"))
+        form_layout.addRow(self.tr("repo_id"), self.repo_input)
         
         # 仓库类型选择
         self.type_combo = QComboBox()
         self.type_combo.addItems(["model", "dataset", "space"])
-        form_layout.addRow("仓库类型:", self.type_combo)
+        form_layout.addRow(self.tr("repo_type"), self.type_combo)
         
         # 下载模式选择
-        self.full_repo_checkbox = QCheckBox("下载整个仓库")
+        self.full_repo_checkbox = QCheckBox(self.tr("download_full_repo"))
         self.full_repo_checkbox.stateChanged.connect(self.on_checkbox_changed)
         form_layout.addRow("", self.full_repo_checkbox)
         
         # 文件名输入
         self.file_input = QLineEdit()
-        self.file_input.setPlaceholderText("例如: config.json")
-        form_layout.addRow("文件名:", self.file_input)
+        self.file_input.setPlaceholderText(self.tr("filename_placeholder"))
+        form_layout.addRow(self.tr("filename"), self.file_input)
         self.file_widgets = [self.file_input]
         
         # 子文件夹输入
         self.subfolder_input = QLineEdit()
-        self.subfolder_input.setPlaceholderText("可选")
-        form_layout.addRow("子文件夹:", self.subfolder_input)
+        self.subfolder_input.setPlaceholderText(self.tr("subfolder_placeholder"))
+        form_layout.addRow(self.tr("subfolder"), self.subfolder_input)
         self.file_widgets.append(self.subfolder_input)
         
         # Token输入
         self.token_input = QLineEdit()
-        self.token_input.setPlaceholderText("可选，用于访问私有仓库")
+        self.token_input.setPlaceholderText(self.tr("token_placeholder"))
         self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        form_layout.addRow("HF Token:", self.token_input)
+        form_layout.addRow(self.tr("token"), self.token_input)
         
         # 保存路径选择
         path_widget = QWidget()
@@ -566,21 +583,21 @@ class HFDownloaderGUI(QMainWindow):
         path_layout.setSpacing(8)
         
         self.save_path_input = QLineEdit()
-        self.save_path_input.setPlaceholderText("可选，默认使用系统缓存目录")
+        self.save_path_input.setPlaceholderText(self.tr("save_path_placeholder"))
         
-        self.save_path_button = QPushButton("浏览...")
+        self.save_path_button = QPushButton(self.tr("browse"))
         self.save_path_button.setObjectName("browseButton")
         self.save_path_button.clicked.connect(self.select_save_path)
         
         path_layout.addWidget(self.save_path_input)
         path_layout.addWidget(self.save_path_button)
-        form_layout.addRow("保存路径:", path_widget)
+        form_layout.addRow(self.tr("save_path"), path_widget)
         
         # 添加表单布局到主布局
         layout.addLayout(form_layout)
         
         # 添加进度提示
-        self.progress_label = QLabel("准备就绪")
+        self.progress_label = QLabel(self.tr("ready"))
         self.progress_label.setObjectName("progress")
         self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.progress_label)
@@ -595,8 +612,8 @@ class HFDownloaderGUI(QMainWindow):
         layout.addWidget(self.progress_bar)
         
         # 下载按钮
-        self.download_btn = QPushButton("开始下载")
-        self.download_btn.setFixedSize(120, 32)
+        self.download_btn = QPushButton(self.tr("start_download"))
+        self.download_btn.setFixedSize(160, 32)
         self.download_btn.clicked.connect(self.start_download)
         
         # 创建按钮容器并设置居中对齐
@@ -613,6 +630,42 @@ class HFDownloaderGUI(QMainWindow):
         load_dotenv()
         
         logging.info("GUI initialized successfully")
+
+    def load_languages(self):
+        """加载语言配置文件"""
+        try:
+            with open('languages.json', 'r', encoding='utf-8') as f:
+                self.languages = json.load(f)
+        except Exception as e:
+            logging.error(f"Failed to load language file: {str(e)}")
+            self.languages = {}
+
+    def tr(self, key):
+        """翻译文本"""
+        try:
+            return self.languages[self.current_language][key]
+        except:
+            return key
+
+    def change_language(self, language_text):
+        """切换语言"""
+        self.current_language = 'zh_CN' if language_text == '简体中文' else 'en_US'
+        self.settings.setValue('language', self.current_language)
+        self.retranslateUi()
+
+    def retranslateUi(self):
+        """更新界面文本"""
+        self.setWindowTitle(self.tr("window_title"))
+        self.title_label.setText(self.tr("title"))
+        self.repo_input.setPlaceholderText(self.tr("repo_id_placeholder"))
+        self.file_input.setPlaceholderText(self.tr("filename_placeholder"))
+        self.subfolder_input.setPlaceholderText(self.tr("subfolder_placeholder"))
+        self.token_input.setPlaceholderText(self.tr("token_placeholder"))
+        self.save_path_input.setPlaceholderText(self.tr("save_path_placeholder"))
+        self.save_path_button.setText(self.tr("browse"))
+        self.download_btn.setText(self.tr("start_download"))
+        self.progress_label.setText(self.tr("ready"))
+        self.full_repo_checkbox.setText(self.tr("download_full_repo"))
 
     def on_checkbox_changed(self, state):
         # 当选择下载整个仓库时，禁用文件名和子文件夹输入
@@ -643,15 +696,15 @@ class HFDownloaderGUI(QMainWindow):
         self.progress_bar.setValue(0)  # 重置进度条
         if success:
             logging.info(f"Download completed successfully: {message}")
-            QMessageBox.information(self, "成功", message)
+            QMessageBox.information(self, self.tr("success"), message)
         else:
             logging.error(f"Download failed: {message}")
-            QMessageBox.warning(self, "错误", message)
-        self.progress_label.setText("准备就绪")
+            QMessageBox.warning(self, self.tr("error"), message)
+        self.progress_label.setText(self.tr("ready"))
 
     def select_save_path(self):
         """选择保存路径"""
-        path = QFileDialog.getExistingDirectory(self, "选择保存路径")
+        path = QFileDialog.getExistingDirectory(self, self.tr("select_save_path"))
         if path:
             self.save_path_input.setText(path)
 
@@ -663,17 +716,17 @@ class HFDownloaderGUI(QMainWindow):
         
         if not repo_id:
             logging.warning("Missing repository ID")
-            QMessageBox.warning(self, "警", "请填写仓库ID！\n\n格式示例：\n- username/repo-name\n- organization/model-name\n- bert-base-chinese")
+            QMessageBox.warning(self, self.tr("warning"), self.tr("missing_repo_id"))
             return
 
         if not download_full_repo and not self.file_input.text().strip():
             logging.warning("Missing filename for single file download")
-            QMessageBox.warning(self, "警告", "请填写文件名！")
+            QMessageBox.warning(self, self.tr("warning"), self.tr("missing_filename"))
             return
 
         logging.info(f"Starting download - repo_id: {repo_id}, repo_type: {repo_type}, full_repo: {download_full_repo}, save_path: {save_path}")
         self.download_btn.setEnabled(False)
-        self.progress_label.setText("正在初始化下载...")
+        self.progress_label.setText(self.tr("initializing"))
         
         # 创建下载线程
         self.download_thread = DownloadThread(
@@ -683,7 +736,8 @@ class HFDownloaderGUI(QMainWindow):
             token=self.token_input.text().strip() or None,
             download_full_repo=download_full_repo,
             repo_type=repo_type,
-            save_path=save_path or None
+            save_path=save_path or None,
+            tr_func=self.tr  # 传递翻译函数
         )
         
         # 连接信号
